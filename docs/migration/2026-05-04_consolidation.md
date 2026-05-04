@@ -16,6 +16,18 @@ This accelerates the existing Roadmap active sprint in `_admin-private/CLAUDE.md
 | **B3 cm1 local** | `boan-emr/scripts/` | BoAn-private | 6 scrapers (partial dup of B2) |
 | **B4 GitHub stale** | `copper0722/vault-scripts` (cloned to `/tmp/scraper-merge-staging/vault-scripts/` for audit) | public, last commit 2026-04-22 (pre-Phase-9c) | 12 scraper near-dup of B2 with whitespace/EOL differences only |
 
+## Companion private repo: `personal-scrapers`
+
+Per Copper directive 2026-05-04 plan (b), private/login-required scrapers split
+into a separate private repo `copper0722/personal-scrapers` (created
+2026-05-04). Scope: Garmin Connect, TSN exam (society login), Zotero, etc. —
+anything that needs personal credentials and cannot be public.
+
+`tw-medical-scrapers/` (this repo) hosts public anonymous-access TW gov-medical
+data only. Subscription-protected medical journal downloaders (NEJM, Nature)
+remain as standalone Chrome-extension repos under `dev/`
+(`dev/journal-downloader/`, `dev/download-nejm-video/`).
+
 GitHub repos audited but **no net-new scrapers found**:
 - `copper0722/vault` — broken/empty repo, ignore
 - `copper0722/clinic-ehr` — pre-Phase-9c clinic EMR, no NHI/TFDA scrapers (only 3 false-positive hits in dialysis WebApp)
