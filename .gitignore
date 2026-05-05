@@ -1,0 +1,47 @@
+
+# === Binary blanket (Copper directive 2026-05-05) ===
+# Vault binary canonical = ~/VaultBinary/ (rsync, never git).
+# Mirror of ~/.gitignore_global — defense in depth at repo level.
+*.pdf
+*.epub
+*.mobi
+*.djvu
+*.azw
+*.azw3
+*.mp3
+*.mp4
+*.mov
+*.m4a
+*.wav
+*.flac
+*.aac
+*.ogg
+*.webm
+*.mkv
+*.avi
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tar.bz2
+*.tar.xz
+*.7z
+*.rar
+*.gz
+*.iso
+*.dmg
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.odt
+*.ods
+*.odp
+*.pages
+*.numbers
+*.key
+*.psd
+*.ai
+*.indd
