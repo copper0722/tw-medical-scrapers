@@ -192,6 +192,75 @@ def efetch_pmc_xml(pmc_id: str, throttle: RateLimiter) -> str | None:
         return None
 
 
+def extract_image_refs(xml_str: str, pmc_id: str) -> list[dict]:
+    """Walk JATS XML for <graphic> + <inline-graphic> elements; resolve to PMC bin URL.
+
+    PMC OA images live at https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{id}/bin/{href}.
+    Returns: [{href, url, caption, kind: 'fig'|'inline-graphic'|'table-graphic'}]
+    """
+    if not xml_str:
+        return []
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    # JATS uses xlink namespace for href
+    XLINK = "{http://www.w3.org/1999/xlink}href"
+    for parent_tag, kind in (("fig", "fig"), ("table-wrap", "table-graphic"),
+                             ("inline-graphic", "inline-graphic")):
+        # iterate all matching parents
+        for parent in root.iter():
+            ptag = parent.tag.split("}", 1)[-1]
+            if ptag != parent_tag:
+                continue
+            # find <graphic> inside (or self if parent IS inline-graphic)
+            cands = [parent] if parent_tag == "inline-graphic" else list(
+                e for e in parent.iter() if e.tag.split("}", 1)[-1] == "graphic"
+            )
+            for g in cands:
+                href = g.get(XLINK) or g.get("href") or ""
+                if not href or href in seen:
+                    continue
+                seen.add(href)
+                # Caption: parent may have <caption><p>...
+                cap = ""
+                if parent_tag != "inline-graphic":
+                    cap_el = parent.find(".//caption")
+                    if cap_el is not None:
+                        cap = _render_inline(cap_el).strip()
+                    if not cap:
+                        label = parent.find("./label")
+                        if label is not None:
+                            cap = _render_inline(label).strip()
+                # PMC bin URL (most images are jpg/gif; href usually has no extension,
+                # so let server resolve via .jpg fallback in fetcher)
+                url = (
+                    f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmc_id}/bin/"
+                    f"{href}{'' if '.' in href else '.jpg'}"
+                )
+                out.append({"href": href, "url": url, "caption": cap, "kind": kind})
+    return out
+
+
+def fetch_image(url: str, dest: Path, throttle: RateLimiter) -> bool:
+    """Download image binary to dest. Returns True on success."""
+    if dest.exists() and dest.stat().st_size > 0:
+        return True
+    throttle.wait()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": TOOL})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return True
+    except Exception as e:
+        print(f"    image fetch fail {url}: {e}", file=sys.stderr)
+        return False
+
+
 def jats_to_markdown(xml_str: str) -> str:
     """Strip JATS XML to clean markdown. Keep section headers + paragraphs + tables.
 
@@ -340,23 +409,60 @@ def make_citation_key(rec: dict) -> str:
     return f"{last}{year}_{jabbr}_{pmid}"
 
 
-def write_article(outdir: Path, rec: dict, jats_xml: str | None) -> dict:
+def write_article(outdir: Path, rec: dict, jats_xml: str | None,
+                  with_images: bool, throttle: RateLimiter) -> dict:
     citation_key = make_citation_key(rec)
     article_dir = outdir / citation_key
     article_dir.mkdir(parents=True, exist_ok=True)
+
+    pmc_id = rec.get("pmc_id")
+    image_refs = extract_image_refs(jats_xml or "", pmc_id) if pmc_id else []
+    images_dir = article_dir / "images"
+    images_meta: list[dict] = []
+    if with_images and image_refs:
+        for ref in image_refs:
+            href = ref["href"]
+            # Local filename — preserve href if it has extension, else add .jpg
+            fname = href if "." in href else href + ".jpg"
+            fname = re.sub(r"[^A-Za-z0-9._-]", "_", fname)
+            local = images_dir / fname
+            ok = fetch_image(ref["url"], local, throttle)
+            images_meta.append({
+                "href": href, "url": ref["url"], "kind": ref["kind"],
+                "caption": ref.get("caption"),
+                "local_path": str(local) if ok else None,
+                "local_filename": fname if ok else None,
+                "fetched": ok,
+            })
+    elif image_refs:
+        # captured URLs but didn't download (cm1 binary-free path)
+        for ref in image_refs:
+            images_meta.append({
+                "href": ref["href"], "url": ref["url"], "kind": ref["kind"],
+                "caption": ref.get("caption"),
+                "local_path": None, "local_filename": None,
+                "fetched": False,
+            })
 
     md_lines = []
     if jats_xml:
         md_lines.append(jats_to_markdown(jats_xml))
     if not md_lines or not md_lines[0].strip():
-        # fall back to esummary-only stub if JATS unavailable
         md_lines = [
             f"# {rec.get('title', 'Untitled')}",
             "",
             f"_{rec.get('journal', '')}, {parse_pub_date(rec) or 'date unknown'}_",
             "",
-            "## Abstract\n\n_(JATS XML not retrieved; abstract via esummary not fetched in this pass.)_",
+            "## Abstract\n\n_(JATS XML not retrieved.)_",
         ]
+    # Append fetched-image gallery so raw.md is reader-complete
+    if with_images and any(im["fetched"] for im in images_meta):
+        md_lines.append("\n\n## Figures\n")
+        for im in images_meta:
+            if not im["fetched"]:
+                continue
+            cap = im.get("caption") or im["href"]
+            md_lines.append(f"![{cap}](images/{im['local_filename']})\n\n_{cap}_")
     raw_md = "\n".join(md_lines)
     (article_dir / "raw.md").write_text(raw_md, encoding="utf-8")
 
@@ -364,19 +470,22 @@ def write_article(outdir: Path, rec: dict, jats_xml: str | None) -> dict:
         "citation_key": citation_key,
         "pmid": rec.get("pmid"),
         "doi": rec.get("doi"),
-        "pmc_id": rec.get("pmc_id"),
+        "pmc_id": pmc_id,
         "title": rec.get("title"),
         "journal": rec.get("journal"),
         "publish_date": parse_pub_date(rec),
         "authors": rec.get("authors") or [],
         "pub_types": rec.get("pub_types") or [],
-        "oa_status": "positive" if rec.get("pmc_id") else "unknown",
+        "oa_status": "positive" if pmc_id else "unknown",
         "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "source_pipeline": "pubmed_oa_hd_reviews",
-        "source_query_label": "hemodialysis_oa_review_1y",
+        "source_query_label": "hemodialysis_oa_review",
         "raw_md_path": str((article_dir / "raw.md").resolve()),
         "raw_md_bytes": len(raw_md.encode("utf-8")),
         "has_full_text": bool(jats_xml and len(raw_md) > 1000),
+        "images": images_meta,
+        "images_fetched": sum(1 for i in images_meta if i["fetched"]),
+        "images_total": len(images_meta),
     }
     (article_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -400,6 +509,10 @@ def main() -> int:
                    help="Single-PMID test mode; bypass esearch. Repeatable.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print esearch count + sample PMIDs; do not fetch JATS.")
+    p.add_argument("--with-images", action="store_true",
+                   help="Download <fig>/<table-wrap>/<inline-graphic> binaries to "
+                        "<out>/<key>/images/. Only run on a binary-capable host "
+                        "(per LAW: hm4 / mbp / hm4-ssd; NOT cm1 / mba ~/repos/*).")
     args = p.parse_args()
 
     throttle = RateLimiter(per_second=8.0 if API_KEY else 2.5)
@@ -445,9 +558,10 @@ def main() -> int:
             for rec in summaries:
                 pmc_id = rec.get("pmc_id")
                 xml = efetch_pmc_xml(pmc_id, throttle) if pmc_id else None
-                manifest = write_article(args.out, rec, xml)
+                manifest = write_article(args.out, rec, xml, args.with_images, throttle)
                 idxf.write(json.dumps(manifest, ensure_ascii=False) + "\n")
-                print(f"  ✓ {manifest['citation_key']}  full_text={manifest['has_full_text']}",
+                print(f"  ✓ {manifest['citation_key']}  full_text={manifest['has_full_text']}"
+                      f"  imgs={manifest['images_fetched']}/{manifest['images_total']}",
                       file=sys.stderr)
 
     print(f"[done] {len(pmids)} articles → {args.out}; index at {index_path}",
