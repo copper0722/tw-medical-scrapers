@@ -234,10 +234,12 @@ def extract_image_refs(xml_str: str, pmc_id: str) -> list[dict]:
                         label = parent.find("./label")
                         if label is not None:
                             cap = _render_inline(label).strip()
-                # PMC bin URL (most images are jpg/gif; href usually has no extension,
-                # so let server resolve via .jpg fallback in fetcher)
+                # Correct PMC bin URL pattern (verified 2026-05-08):
+                #   https://pmc.ncbi.nlm.nih.gov/articles/instance/{numeric_id}/bin/{href}
+                # 301-redirects to CDN hashed URL; urllib.request follows by default.
+                # Old `www.ncbi.nlm.nih.gov/pmc/articles/PMC{id}/bin/...` returns 404.
                 url = (
-                    f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmc_id}/bin/"
+                    f"https://pmc.ncbi.nlm.nih.gov/articles/instance/{pmc_id}/bin/"
                     f"{href}{'' if '.' in href else '.jpg'}"
                 )
                 out.append({"href": href, "url": url, "caption": cap, "kind": kind})
