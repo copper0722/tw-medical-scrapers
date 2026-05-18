@@ -14,8 +14,12 @@ Known InfoIds (extend as needed):
   4   食品標示違規查詢
   36  西藥許可證
   43  西藥成分
-  67  醫療器材許可證
+  68  醫療器材許可證
   73  化粧品許可證
+
+InfoId map verified 2026-05-18 by walking data.gov.tw catalog. Earlier doc
+claimed 67 for 醫療器材許可證 — that's the human-tissue biobank permit set
+(人體生物資料庫設置許可資料); 68 is the correct medical-device permit ID.
 
 Subcommands:
   fetch <info_id>          — download ZIP, extract inner JSON, emit records as JSONL
