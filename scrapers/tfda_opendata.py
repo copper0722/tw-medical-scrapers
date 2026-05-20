@@ -13,6 +13,10 @@ Returns ZIP containing a single JSON file `N_3.json` (a list of records).
 Known InfoIds (extend as needed):
   4   食品標示違規查詢
   36  西藥許可證
+  39  藥品仿單或外盒資料集 (許可證字號 → 仿單/外盒圖檔連結)
+  40  藥品藥理治療分類AHFS/DI碼資料集 (許可證字號 → AHFS/DI 代碼 crosswalk)
+  41  藥品藥理治療分類ATC碼資料集 (許可證字號 → ATC 代碼 crosswalk)
+  42  藥品外觀資料集 (許可證字號 → 形狀/顏色/標記/外觀圖檔)
   43  西藥成分
   68  醫療器材許可證
   73  化粧品許可證
@@ -45,6 +49,10 @@ BASE = "https://data.fda.gov.tw/opendata/exportDataList.do"
 KNOWN_INFOIDS = {
     4:  ("食品標示違規查詢", "食品"),
     36: ("西藥許可證", "西藥"),
+    39: ("藥品仿單或外盒資料集", "西藥"),
+    40: ("藥品藥理治療分類AHFS/DI碼資料集", "西藥"),
+    41: ("藥品藥理治療分類ATC碼資料集", "西藥"),
+    42: ("藥品外觀資料集", "西藥"),
     43: ("西藥成分", "西藥"),
     67: ("醫療器材許可證", "醫療器材"),
     73: ("化粧品許可證", "化粧品"),
